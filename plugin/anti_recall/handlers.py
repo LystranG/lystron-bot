@@ -16,7 +16,13 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, GroupRecallNotic
 from nonebot.adapters.onebot.v11.message import Message, MessageSegment
 
 from . import cache, config
-from .segments import message_to_segments, reply_preview_segments, expand_reply_segments, extract_forward_ids, segments_to_cq
+from .segments import (
+    message_to_segments,
+    reply_preview_segments,
+    expand_reply_segments,
+    extract_forward_ids,
+    segments_to_cq,
+)
 from .utils import is_onebot_v11, bot_user_id
 from .state import is_enabled
 
@@ -61,6 +67,27 @@ async def handle_group_message(bot: Bot, event: GroupMessageEvent):
     # 方案2：只提取“外层转发”的 forward_id，撤回时原样发送该 forward 段
     forward_ids = extract_forward_ids(message) or None
 
+    archived_message_id: int | None = None
+    # 方案一：如果是转发消息，先归档到指定群聊，保存归档 message_id 供撤回时转发
+    if forward_ids and config.archive_group_id and config.archive_group_id != event.group_id:
+        try:
+            # NapCat: forward_group_single_msg(group_id, message_id)
+            res = await bot.call_api(
+                "forward_group_single_msg",
+                group_id=config.archive_group_id,
+                message_id=event.message_id,
+                _timeout=60,
+            )
+            # 文档里 data 可能为空，但不同实现可能返回 message_id
+            if isinstance(res, dict):
+                archived_message_id = int(
+                    res.get("message_id")
+                    or (res.get("data", {}) or {}).get("message_id")
+                    or 0
+                ) or None
+        except Exception:
+            archived_message_id = None
+
     cache.put(
         event.message_id,
         cache.CachedMessage(
@@ -70,6 +97,7 @@ async def handle_group_message(bot: Bot, event: GroupMessageEvent):
             sender_user_id=event.user_id,
             forward_ids=forward_ids,
             expanded_segments=message_segments,
+            archived_message_id=archived_message_id,
         ),
     )
 
@@ -103,43 +131,64 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
         f"撤回消息ID: {event.message_id}\n"
     )
 
-    # 发送为普通私聊消息（不再重建合并转发），以避免 NapCat 对内层转发 get_forward_msg 的限制
+    # 方案一：转发消息优先使用 NapCat 的 forward_friend_single_msg 转发归档群内的消息
     try:
         if cached.forward_ids:
-            # NapCat 私聊发送 [CQ:forward] 可能超时，优先走“引用原消息 message_id”的 node 转发：
-            # send_private_forward_msg(messages=[node_custom(header), node(id=原消息message_id)])
+            if not config.archive_group_id:
+                return
+
+            # 先发 header（避免 forward 动作失败时完全无提示）
+            await bot.send_private_msg(
+                user_id=config.target_user_id, message=MessageSegment.text(header)
+            )
+
+            src_msg_id = cached.archived_message_id or event.message_id
+            try:
+                await bot.call_api(
+                    "forward_friend_single_msg",
+                    user_id=config.target_user_id,
+                    message_id=src_msg_id,
+                    _timeout=60,
+                )
+            except Exception:
+                # 最小降级：不再继续尝试其它方式，避免刷屏
+                return
+            return
+        else:
+            # 普通消息：恢复成“合并转发卡片”发送
+            cq = segments_to_cq(cached.expanded_segments)
+            nodes = [
+                {
+                    "type": "node",
+                    "data": dict(
+                        MessageSegment.node_custom(
+                            int(bot_user_id(bot)), "防撤回", header
+                        ).data
+                    ),
+                },
+                {
+                    "type": "node",
+                    "data": dict(
+                        MessageSegment.node_custom(
+                            int(cached.sender_user_id), cached.sender_name, cq
+                        ).data
+                    ),
+                },
+            ]
             try:
                 await bot.call_api(
                     "send_private_forward_msg",
                     user_id=config.target_user_id,
-                    messages=[
-                        {
-                            "type": "node",
-                            "data": {
-                                "user_id": str(bot_user_id(bot)),
-                                "nickname": "防撤回",
-                                "content": header,
-                            },
-                        },
-                        {"type": "node", "data": {"id": str(event.message_id)}},
-                    ],
+                    messages=nodes,
                     _timeout=60,
                 )
-                return
             except Exception:
-                # 失败则降级：至少把 header 发出去
-                await bot.send_private_msg(
-                    user_id=config.target_user_id, message=MessageSegment.text(header)
-                )
-                return
-        else:
-            # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
-            cq = segments_to_cq(cached.expanded_segments)
-            msg = Message()
-            msg.append(MessageSegment.text(header))
-            if cq:
-                msg += Message(cq)
-            await bot.send_private_msg(user_id=config.target_user_id, message=msg)
+                # 降级为普通消息（静默）
+                msg = Message()
+                msg.append(MessageSegment.text(header))
+                if cq:
+                    msg += Message(cq)
+                await bot.send_private_msg(user_id=config.target_user_id, message=msg)
     except Exception:
         # 用户要求“尽量少输出”：发送失败直接静默
         return

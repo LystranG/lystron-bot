@@ -17,6 +17,9 @@ class Config(BaseModel):
     recall_forward_max_depth: int = Field(
         default=4, description="合并转发最大嵌套层数（包含第一层）"
     )
+    recall_archive_group_id: int = Field(
+        default=0, description="转发消息归档群号（用于方案一：先归档后转发）"
+    )
 
 
 driver = get_driver()
@@ -26,3 +29,4 @@ plugin_config: Config = Config.model_validate(driver.config.model_dump())
 monitor_groups: list[int] = plugin_config.recall_monitor_groups
 target_user_id: int = plugin_config.recall_target_user_id
 forward_max_depth: int = max(1, int(plugin_config.recall_forward_max_depth))
+archive_group_id: int = int(plugin_config.recall_archive_group_id or 0)

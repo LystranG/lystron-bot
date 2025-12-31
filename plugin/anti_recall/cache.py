@@ -36,6 +36,8 @@ class CachedMessage:
     # 原始消息中包含的 forward_id（外层转发），用于撤回时原样转发以保留 QQ 原生嵌套能力
     forward_ids: list[str] | None
     expanded_segments: list[Segment]
+    # 归档群中的消息 ID（用于 NapCat forward_friend_single_msg 转发）
+    archived_message_id: int | None = None
     # 可选：用于 reply 摘要的原始 segments（例如转发记录内部条目无法构造 Message 时）
     source_segments: list[Segment] | None = None
 
