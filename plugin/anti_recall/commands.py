@@ -25,6 +25,7 @@ from nonebot_plugin_alconna import (  # noqa: E402
 )
 
 from nb_shared.auth import is_superuser  # noqa: E402
+from nb_shared.alconna_ns import build_default_namespace  # noqa: E402
 from .state import is_enabled, set_enabled  # noqa: E402
 
 
@@ -32,6 +33,7 @@ antirecall = on_alconna(
     Alconna(
         "antirecall",
         Args["action?", str],
+        namespace=build_default_namespace(name="global"),
     ),
     # 关闭自动输出（包括语法错误、帮助等），由我们自行决定什么时候回复
     auto_send_output=False,
