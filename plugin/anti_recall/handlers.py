@@ -104,18 +104,23 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
     )
 
     # 发送为普通私聊消息（不再重建合并转发），以避免 NapCat 对内层转发 get_forward_msg 的限制
-    msg = Message()
-    msg.append(MessageSegment.text(header))
-
-    if cached.forward_ids:
-        for fid in cached.forward_ids:
-            msg.append(MessageSegment.forward(fid))
-    else:
-        # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
-        msg += Message(segments_to_cq(cached.expanded_segments))
-
     try:
-        await bot.send_private_msg(user_id=config.target_user_id, message=msg)
+        # 先单独发送 header（避免与 forward 段混合导致实现端/客户端丢消息）
+        await bot.send_private_msg(
+            user_id=config.target_user_id, message=MessageSegment.text(header)
+        )
+
+        if cached.forward_ids:
+            # 外层转发：逐条原样发送 forward 段（保留 QQ 原生嵌套能力）
+            for fid in cached.forward_ids:
+                await bot.send_private_msg(
+                    user_id=config.target_user_id, message=MessageSegment.forward(fid)
+                )
+        else:
+            # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
+            cq = segments_to_cq(cached.expanded_segments)
+            if cq:
+                await bot.send_private_msg(user_id=config.target_user_id, message=Message(cq))
     except Exception:
         # 用户要求“尽量少输出”：发送失败直接静默
         return

@@ -36,6 +36,8 @@ class LastSentRecord:
     api: str
     target: dict[str, Any]
     message: Any
+    ok: bool
+    exception: str | None
 
 
 _last_sent: LastSentRecord | None = None
@@ -127,8 +129,6 @@ async def _record_last_sent(
     - API 名以 send_ 开头（发送类）
     """
 
-    if exception is not None:
-        return
     if not isinstance(bot, V11Bot):
         return
     if not api.startswith("send_"):
@@ -149,6 +149,8 @@ async def _record_last_sent(
         api=api,
         target=_extract_target(data),
         message=payload,
+        ok=exception is None,
+        exception=repr(exception) if exception is not None else None,
     )
 
 
@@ -172,11 +174,13 @@ async def _(bot: BaseBot, event: Event):
 
     # NoneBot 的 logger 基于 loguru，使用 {} 风格格式化（而不是 logging 的 %s）。
     logger.info(
-        "[test-send] {} api={} target={} message={}",
+        "[test-send] {} ok={} api={} target={} message={} exception={}",
         _last_sent.time,
+        _last_sent.ok,
         _last_sent.api,
         _safe_dump(_last_sent.target),
         _safe_dump(_last_sent.message),
+        _last_sent.exception,
     )
     return
 
