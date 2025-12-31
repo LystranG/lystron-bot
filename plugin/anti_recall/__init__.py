@@ -15,7 +15,7 @@ __plugin_meta__ = PluginMetadata(
     name="防撤回插件",
     description="监听群消息撤回事件，将撤回的消息转发给配置的用户",
     usage="在 .env 中配置 RECALL_MONITOR_GROUPS、RECALL_TARGET_USER_ID 等",
-    extra={"author": "HelloAGENTS"},
+    extra={"author": "Lystran"},
 )
 
 # 导入 handlers 模块以注册事件监听器（on_message / on_notice）
