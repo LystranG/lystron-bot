@@ -2,8 +2,8 @@
 
 目标：
 - 缓存最近 N 条群消息，供撤回时转发
-- 缓存合并转发的展开结果（因为撤回后后端往往无法再 get_forward_msg）
 - 缓存 reply 展开需要的“引用预览”（避免撤回后再 get_msg 失败）
+- 对“转发消息”额外缓存：归档群中的 message_id（用于 NapCat 的转发接口）
 """
 
 from __future__ import annotations
@@ -11,18 +11,14 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
-import copy
 
 from nonebot.adapters.onebot.v11.message import Message
 
 
 Segment = dict[str, Any]
-ForwardNode = dict[str, Any]
 
 # 最大缓存消息数量（超过后按 FIFO 丢弃最早缓存）
 MAX_CACHE_SIZE = 100
-# 最大 forward_id 缓存数量（用于嵌套转发的复用）
-MAX_FORWARD_CACHE_SIZE = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,14 +34,10 @@ class CachedMessage:
     expanded_segments: list[Segment]
     # 归档群中的消息 ID（用于 NapCat forward_friend_single_msg 转发）
     archived_message_id: int | None = None
-    # 可选：用于 reply 摘要的原始 segments（例如转发记录内部条目无法构造 Message 时）
-    source_segments: list[Segment] | None = None
 
 
 _message_queue: deque[int] = deque()
 _message_cache: dict[int, CachedMessage] = {}
-_forward_queue: deque[str] = deque()
-_forward_cache: dict[str, list[ForwardNode]] = {}
 
 
 def put(message_id: int, cached: CachedMessage) -> None:
@@ -73,44 +65,6 @@ def get(message_id: int) -> CachedMessage | None:
     return _message_cache.get(message_id)
 
 
-def put_forward(forward_id: str, nodes: list[ForwardNode]) -> None:
-    """缓存 forward_id 对应的节点列表（用于嵌套转发复用）。
-
-    说明：
-    - NapCat 对“内层消息”的 get_forward_msg 会直接报错，导致嵌套转发无法展开
-    - 因此当某个 forward_id 首次作为“外层转发”出现并成功展开时，先缓存起来
-    - 后续若它作为嵌套转发出现，则直接复用缓存，避免触发后端限制
-    """
-
-    fid = str(forward_id or "").strip()
-    if not fid:
-        return
-
-    if fid in _forward_cache:
-        try:
-            _forward_queue.remove(fid)
-        except ValueError:
-            pass
-
-    if len(_forward_queue) >= MAX_FORWARD_CACHE_SIZE:
-        oldest = _forward_queue.popleft()
-        _forward_cache.pop(oldest, None)
-
-    _forward_queue.append(fid)
-    # 深拷贝，避免外部修改影响缓存
-    _forward_cache[fid] = copy.deepcopy(nodes)
-
-
-def get_forward(forward_id: str) -> list[ForwardNode] | None:
-    """读取 forward_id 缓存（返回深拷贝，避免被修改）。"""
-
-    fid = str(forward_id or "").strip()
-    if not fid:
-        return None
-    nodes = _forward_cache.get(fid)
-    return copy.deepcopy(nodes) if nodes is not None else None
-
-
 def offset_up(current_message_id: int, target_message_id: int) -> int | None:
     """计算“往上第 N 条”。
 
@@ -134,3 +88,12 @@ def offset_up(current_message_id: int, target_message_id: int) -> int | None:
 
     offset = current_idx - target_idx
     return offset if offset > 0 else None
+
+def remove(message_id: int) -> None:
+    """从缓存中移除指定消息 ID 的缓存条目。"""
+
+    try:
+        _message_queue.remove(message_id)
+    except ValueError:
+        pass
+    _message_cache.pop(message_id, None)

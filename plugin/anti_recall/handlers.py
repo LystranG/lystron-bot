@@ -2,14 +2,12 @@
 
 把“监听/编排”与“纯函数工具”分离，便于维护与单测。
 
-方案2（NapCat 嵌套转发支持）：
-- 不再尝试重建合并转发或展开内层（会触发 NapCat “内层消息无法获取转发消息”限制）
-- 撤回时直接把“原消息里的外层 forward 段”原样发送给目标账号，让 QQ 客户端原生渲染嵌套
+当前策略（NapCat + QQ 嵌套转发）：
+- 普通消息：构造合并转发卡片发送给目标账号
+- 转发消息：先转发到归档群保存一份（拿到归档群 message_id），撤回时用 NapCat 转发接口转给目标账号
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from nonebot import on_message, on_notice
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, GroupRecallNoticeEvent
@@ -27,6 +25,7 @@ from .segments import (
 )
 from .utils import is_onebot_v11, bot_user_id
 from .state import is_enabled
+
 
 async def _resolve_latest_group_message_id(bot: Bot, group_id: int) -> int | None:
     """通过 get_group_msg_history 获取某群最新一条消息的 message_id。
@@ -151,7 +150,7 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
     if event.group_id not in config.monitor_groups:
         return
 
-    if not config.target_user_id:
+    if not config.target_user_ids:
         return
 
     cached = cache.get(event.message_id)
@@ -170,25 +169,30 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
             if not config.archive_group_id:
                 return
 
-            # 先发 header（避免 forward 动作失败时完全无提示）
-            await bot.send_private_msg(
-                user_id=config.target_user_id, message=MessageSegment.text(header)
-            )
-            await asyncio.sleep(1)
             # 必须使用“归档群里的 message_id”，否则会出现“该消息类型暂不支持查看”或转发失败
             src_msg_id = cached.archived_message_id
             if not src_msg_id:
                 return
-            try:
-                await bot.call_api(
-                    "forward_friend_single_msg",
-                    user_id=config.target_user_id,
-                    message_id=src_msg_id,
-                    _timeout=60,
-                )
-            except Exception:
-                # 最小降级：不再继续尝试其它方式，避免刷屏
-                return
+
+            for target_user_id in config.target_user_ids:
+                try:
+                    # 先发 header（避免 forward 动作失败时完全无提示）
+                    await bot.send_private_msg(
+                        user_id=target_user_id, message=MessageSegment.text(header)
+                    )
+                    await asyncio.sleep(1)
+                    await bot.call_api(
+                        "forward_friend_single_msg",
+                        user_id=target_user_id,
+                        message_id=src_msg_id,
+                        _timeout=60,
+                    )
+                    await asyncio.sleep(1)
+                    await bot.delete_msg(message_id=cached.archived_message_id)
+                    logger.log("反撤回： 已发送反撤回信息到目的qq")
+                except Exception:
+                    # 用户要求“尽量少输出”：失败静默，继续下一个目标
+                    continue
             return
         else:
             # 普通消息：恢复成“合并转发卡片”发送
@@ -211,20 +215,31 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
                     ),
                 },
             ]
-            try:
-                await bot.call_api(
-                    "send_private_forward_msg",
-                    user_id=config.target_user_id,
-                    messages=nodes,
-                    _timeout=60,
-                )
-            except Exception:
-                # 降级为普通消息（静默）
-                msg = Message()
-                msg.append(MessageSegment.text(header))
-                if cq:
-                    msg += Message(cq)
-                await bot.send_private_msg(user_id=config.target_user_id, message=msg)
+
+            async def _send_one(target_user_id: int) -> None:
+                try:
+                    await bot.call_api(
+                        "send_private_forward_msg",
+                        user_id=target_user_id,
+                        messages=nodes,
+                        _timeout=60,
+                    )
+                    return
+                except Exception:
+                    # 降级为普通消息（静默）
+                    msg = Message()
+                    msg.append(MessageSegment.text(header))
+                    if cq:
+                        msg += Message(cq)
+                    await bot.send_private_msg(user_id=target_user_id, message=msg)
+
+            for target_user_id in config.target_user_ids:
+                try:
+                    await _send_one(target_user_id)
+                except Exception:
+                    continue
     except Exception:
         # 用户要求“尽量少输出”：发送失败直接静默
         return
+    finally:
+        cache.remove(event.message_id)

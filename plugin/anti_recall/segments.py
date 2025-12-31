@@ -19,7 +19,6 @@ from .utils import safe_int
 
 
 Segment = cache.Segment
-ForwardNode = cache.ForwardNode
 
 
 class ReplyLookupResult(NamedTuple):
@@ -190,25 +189,6 @@ def normalize_content_to_segments(content: Any) -> list[Segment]:
     return [{"type": "text", "data": {"text": json.dumps(content, ensure_ascii=False)}}]
 
 
-def make_forward_node(*, user_id: int, nickname: str, content: Any) -> ForwardNode:
-    """构造 send_private_forward_msg / send_group_forward_msg 需要的 node。"""
-
-    # 兼容策略：优先使用 go-cqhttp/OneBot v11 常见字段（NapCat 更可能按此解析为 PacketMsg）
-    # - user_id: 发送者 QQ 号（用 int，避免实现端类型严格导致丢弃）
-    # - nickname: 昵称（必须与转发记录一致）
-    # - content: CQ 字符串（NapCat 解析更稳定）
-    segments = normalize_content_to_segments(content)
-    cq = segments_to_cq(segments)
-    return {
-        "type": "node",
-        "data": {
-            "user_id": int(user_id),
-            "nickname": nickname,
-            "content": cq,
-        },
-    }
-
-
 def extract_forward_ids(message: Message) -> list[str]:
     """从消息中提取 forward 段 id。"""
 
@@ -226,16 +206,6 @@ def extract_forward_ids(message: Message) -> list[str]:
         if forward_id:
             ids.append(str(forward_id))
     return ids
-
-
-def extract_sender_user_id(sender: dict[str, Any]) -> int:
-    """从不同实现返回的 sender 字段中尽量提取 user_id。"""
-
-    for key in ("user_id", "uin", "qq", "id", "uid", "userId"):
-        user_id = safe_int(sender.get(key))
-        if user_id:
-            return user_id
-    return 0
 
 
 def reply_preview_segments(*, sender_name: str, sender_user_id: int, message: Message) -> list[Segment]:
