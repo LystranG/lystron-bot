@@ -17,7 +17,7 @@ from nonebot.adapters.onebot.v11.message import Message, MessageSegment
 
 from . import cache, config
 from .segments import message_to_segments, reply_preview_segments, expand_reply_segments, extract_forward_ids, segments_to_cq
-from .utils import is_onebot_v11
+from .utils import is_onebot_v11, bot_user_id
 from .state import is_enabled
 
 
@@ -105,41 +105,41 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
 
     # 发送为普通私聊消息（不再重建合并转发），以避免 NapCat 对内层转发 get_forward_msg 的限制
     try:
-        # 先单独发送 header（避免与 forward 段混合导致实现端/客户端丢消息）
-        await bot.send_private_msg(
-            user_id=config.target_user_id, message=MessageSegment.text(header)
-        )
-
         if cached.forward_ids:
-            # 优先：尝试按 message_id 转发“原消息本体”（更接近 QQ 原生，且不依赖 forward_id 可用性）
-            # NapCat 若支持 go-cqhttp 风格的 forward_msg，这条路径通常最稳。
+            # NapCat 私聊发送 [CQ:forward] 可能超时，优先走“引用原消息 message_id”的 node 转发：
+            # send_private_forward_msg(messages=[node_custom(header), node(id=原消息message_id)])
             try:
                 await bot.call_api(
-                    "forward_msg",
-                    message_id=event.message_id,
+                    "send_private_forward_msg",
                     user_id=config.target_user_id,
+                    messages=[
+                        {
+                            "type": "node",
+                            "data": {
+                                "user_id": str(bot_user_id(bot)),
+                                "nickname": "防撤回",
+                                "content": header,
+                            },
+                        },
+                        {"type": "node", "data": {"id": str(event.message_id)}},
+                    ],
                     _timeout=60,
                 )
                 return
             except Exception:
-                pass
-
-            # 其次：外层转发 id（可能在 NapCat 下超时），提高超时并逐条尝试
-            for fid in cached.forward_ids:
-                try:
-                    await bot.call_api(
-                        "send_private_msg",
-                        user_id=config.target_user_id,
-                        message=f"[CQ:forward,id={fid}]",
-                        _timeout=120,
-                    )
-                except Exception:
-                    continue
+                # 失败则降级：至少把 header 发出去
+                await bot.send_private_msg(
+                    user_id=config.target_user_id, message=MessageSegment.text(header)
+                )
+                return
         else:
             # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
             cq = segments_to_cq(cached.expanded_segments)
+            msg = Message()
+            msg.append(MessageSegment.text(header))
             if cq:
-                await bot.send_private_msg(user_id=config.target_user_id, message=Message(cq))
+                msg += Message(cq)
+            await bot.send_private_msg(user_id=config.target_user_id, message=msg)
     except Exception:
         # 用户要求“尽量少输出”：发送失败直接静默
         return
