@@ -33,7 +33,8 @@ class CachedMessage:
     message: Message
     group_id: int
     sender_user_id: int
-    forward_nodes: list[ForwardNode] | None
+    # 原始消息中包含的 forward_id（外层转发），用于撤回时原样转发以保留 QQ 原生嵌套能力
+    forward_ids: list[str] | None
     expanded_segments: list[Segment]
     # 可选：用于 reply 摘要的原始 segments（例如转发记录内部条目无法构造 Message 时）
     source_segments: list[Segment] | None = None

@@ -1,6 +1,10 @@
 """事件监听与业务编排。
 
 把“监听/编排”与“纯函数工具”分离，便于维护与单测。
+
+方案2（NapCat 嵌套转发支持）：
+- 不再尝试重建合并转发或展开内层（会触发 NapCat “内层消息无法获取转发消息”限制）
+- 撤回时直接把“原消息里的外层 forward 段”原样发送给目标账号，让 QQ 客户端原生渲染嵌套
 """
 
 from __future__ import annotations
@@ -9,12 +13,11 @@ from typing import Any
 
 from nonebot import on_message, on_notice
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, GroupRecallNoticeEvent
-from nonebot.adapters.onebot.v11.exception import ActionFailed, NetworkError
+from nonebot.adapters.onebot.v11.message import Message, MessageSegment
 
 from . import cache, config
-from .forward import build_forward_nodes
-from .segments import message_to_segments, reply_preview_segments, expand_reply_segments, make_forward_node
-from .utils import is_onebot_v11, bot_user_id
+from .segments import message_to_segments, reply_preview_segments, expand_reply_segments, extract_forward_ids, segments_to_cq
+from .utils import is_onebot_v11
 from .state import is_enabled
 
 
@@ -55,14 +58,8 @@ async def handle_group_message(bot: Bot, event: GroupMessageEvent):
         bot, message_segments, current_message_id=event.message_id
     )
 
-    # 合并转发：收到时展开并缓存（撤回后后端可能无法 get_forward_msg）
-    forward_nodes = await build_forward_nodes(
-        bot,
-        sender_name=sender_name,
-        event_user_id=event.user_id,
-        message=message,
-        max_depth=config.forward_max_depth,
-    )
+    # 方案2：只提取“外层转发”的 forward_id，撤回时原样发送该 forward 段
+    forward_ids = extract_forward_ids(message) or None
 
     cache.put(
         event.message_id,
@@ -71,7 +68,7 @@ async def handle_group_message(bot: Bot, event: GroupMessageEvent):
             message=message,
             group_id=event.group_id,
             sender_user_id=event.user_id,
-            forward_nodes=forward_nodes,
+            forward_ids=forward_ids,
             expanded_segments=message_segments,
         ),
     )
@@ -106,37 +103,19 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
         f"撤回消息ID: {event.message_id}\n"
     )
 
-    # 合并转发节点（统一以机器人身份发送）
-    nodes: list[dict[str, Any]] = [
-        make_forward_node(user_id=bot_user_id(bot), nickname="防撤回", content=header)
-    ]
+    # 发送为普通私聊消息（不再重建合并转发），以避免 NapCat 对内层转发 get_forward_msg 的限制
+    msg = Message()
+    msg.append(MessageSegment.text(header))
 
-    if cached.forward_nodes is not None:
-        nodes.append(
-            make_forward_node(
-                user_id=bot_user_id(bot),
-                nickname="防撤回",
-                content="原消息为合并转发（已在收到消息时缓存展开内容）：",
-            )
-        )
-        nodes.extend(cached.forward_nodes)
+    if cached.forward_ids:
+        for fid in cached.forward_ids:
+            msg.append(MessageSegment.forward(fid))
     else:
-        nodes.append(
-            make_forward_node(
-                user_id=bot_user_id(bot),
-                nickname=cached.sender_name,
-                content=cached.expanded_segments,
-            )
-        )
+        # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
+        msg += Message(segments_to_cq(cached.expanded_segments))
 
     try:
-        await bot.call_api(
-            "send_private_forward_msg",
-            user_id=config.target_user_id,
-            messages=nodes,
-            _timeout=30,
-        )
-        return
-    except (ActionFailed, NetworkError):
-        # 用户要求“尽量少输出”：无权限/失败直接静默
+        await bot.send_private_msg(user_id=config.target_user_id, message=msg)
+    except Exception:
+        # 用户要求“尽量少输出”：发送失败直接静默
         return
