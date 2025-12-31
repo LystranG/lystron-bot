@@ -27,6 +27,67 @@ from .utils import is_onebot_v11, bot_user_id
 from .state import is_enabled
 
 
+def _extract_message_id_from_action_result(result: object) -> int | None:
+    """从 NapCat/OneBot 的 action 返回中尽量提取 message_id。"""
+
+    if not isinstance(result, dict):
+        return None
+    # 兼容：可能直接在顶层返回 message_id
+    mid = result.get("message_id")
+    try:
+        if mid is not None:
+            return int(mid)
+    except Exception:
+        pass
+
+    data = result.get("data")
+    if isinstance(data, dict):
+        mid = data.get("message_id")
+        try:
+            if mid is not None:
+                return int(mid)
+        except Exception:
+            return None
+    return None
+
+
+async def _resolve_latest_group_message_id(bot: Bot, group_id: int) -> int | None:
+    """通过 get_group_msg_history 获取某群最新一条消息的 message_id。
+
+    NapCat 的 forward_group_single_msg 通常不会返回新消息的 message_id，
+    但会确实在群内产生一条新的“转发后的消息”。对于专用归档群，这里取最新一条即可。
+    """
+
+    try:
+        res = await bot.call_api(
+            "get_group_msg_history",
+            group_id=group_id,
+            message_seq=0,
+            count=1,
+            reverseOrder=True,
+            _timeout=20,
+        )
+    except Exception:
+        return None
+
+    if not isinstance(res, dict):
+        return None
+    data = res.get("data")
+    if not isinstance(data, dict):
+        return None
+    messages = data.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return None
+    first = messages[0]
+    if not isinstance(first, dict):
+        return None
+    try:
+        mid = first.get("message_id")
+        return int(mid) if mid is not None else None
+    except Exception:
+        return None
+
+
 # 监听群消息事件：用于缓存（包括合并转发展开结果、reply 预览等）
 group_msg = on_message(priority=10, block=False)
 
@@ -78,13 +139,12 @@ async def handle_group_message(bot: Bot, event: GroupMessageEvent):
                 message_id=event.message_id,
                 _timeout=60,
             )
-            # 文档里 data 可能为空，但不同实现可能返回 message_id
-            if isinstance(res, dict):
-                archived_message_id = int(
-                    res.get("message_id")
-                    or (res.get("data", {}) or {}).get("message_id")
-                    or 0
-                ) or None
+            # 优先从返回中取 message_id，若没有则回退为“拉取归档群最新一条”
+            archived_message_id = _extract_message_id_from_action_result(res)
+            if archived_message_id is None:
+                archived_message_id = await _resolve_latest_group_message_id(
+                    bot, config.archive_group_id
+                )
         except Exception:
             archived_message_id = None
 
@@ -142,7 +202,10 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
                 user_id=config.target_user_id, message=MessageSegment.text(header)
             )
 
-            src_msg_id = cached.archived_message_id or event.message_id
+            # 必须使用“归档群里的 message_id”，否则会出现“该消息类型暂不支持查看”或转发失败
+            src_msg_id = cached.archived_message_id
+            if not src_msg_id:
+                return
             try:
                 await bot.call_api(
                     "forward_friend_single_msg",
