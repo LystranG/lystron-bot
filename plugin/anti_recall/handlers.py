@@ -111,11 +111,30 @@ async def handle_group_recall(bot: Bot, event: GroupRecallNoticeEvent):
         )
 
         if cached.forward_ids:
-            # 外层转发：逐条原样发送 forward 段（保留 QQ 原生嵌套能力）
-            for fid in cached.forward_ids:
-                await bot.send_private_msg(
-                    user_id=config.target_user_id, message=MessageSegment.forward(fid)
+            # 优先：尝试按 message_id 转发“原消息本体”（更接近 QQ 原生，且不依赖 forward_id 可用性）
+            # NapCat 若支持 go-cqhttp 风格的 forward_msg，这条路径通常最稳。
+            try:
+                await bot.call_api(
+                    "forward_msg",
+                    message_id=event.message_id,
+                    user_id=config.target_user_id,
+                    _timeout=60,
                 )
+                return
+            except Exception:
+                pass
+
+            # 其次：外层转发 id（可能在 NapCat 下超时），提高超时并逐条尝试
+            for fid in cached.forward_ids:
+                try:
+                    await bot.call_api(
+                        "send_private_msg",
+                        user_id=config.target_user_id,
+                        message=f"[CQ:forward,id={fid}]",
+                        _timeout=120,
+                    )
+                except Exception:
+                    continue
         else:
             # 普通消息：按缓存的 segments 输出（CQ 字符串形式更兼容）
             cq = segments_to_cq(cached.expanded_segments)
