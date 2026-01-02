@@ -19,4 +19,4 @@ data/
 # uv 本地虚拟环境与缓存（不要打进镜像）
 .venv/
 .uv/
-
+.uv-cache/
