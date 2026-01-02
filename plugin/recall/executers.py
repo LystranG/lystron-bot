@@ -55,7 +55,7 @@ async def _compute(bot: V11Bot, count: int, request):
             messages = res["messages"]
             
             if not messages or len(messages) == 0:
-                brek
+                break
             expire_flag = False
             for i in reversed(range(0, count)):
                 msg = messages[i]
