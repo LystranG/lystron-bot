@@ -13,6 +13,62 @@ from pydantic import BaseModel, Field
 from pydantic import field_validator
 
 
+def _coerce_int_list(value: Any) -> list[int]:
+    """把输入值尽量规整为 list[int]。
+
+用于兼容以下写法（无论来自 `.env` 还是直接环境变量）：
+- 单个数字：RECALL_MONITOR_GROUPS=123
+- JSON 数组：RECALL_MONITOR_GROUPS=[123,456]
+- 逗号分隔：RECALL_MONITOR_GROUPS=123,456
+"""
+
+    if value is None:
+        return []
+
+    if isinstance(value, bool):
+        # 避免 True/False 被当作 1/0
+        return []
+
+    if isinstance(value, int):
+        return [value] if value else []
+
+    if isinstance(value, (tuple, set)):
+        value = list(value)
+
+    if isinstance(value, list):
+        out: list[int] = []
+        for x in value:
+            try:
+                n = int(x)
+            except Exception:
+                continue
+            if n and n not in out:
+                out.append(n)
+        return out
+
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+
+        # 优先：JSON 数组
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, int):
+                return [parsed] if parsed else []
+            if isinstance(parsed, list):
+                return _coerce_int_list(parsed)
+
+        # 其次：逗号分隔
+        parts = [p.strip() for p in s.split(",")]
+        return _coerce_int_list(parts)
+
+    return []
+
+
 class Config(BaseModel):
     """防撤回插件配置模型（从 .env 读取）。"""
 
@@ -23,6 +79,13 @@ class Config(BaseModel):
     recall_archive_group_id: int = Field(
         default=0, description="转发消息归档群号（用于方案一：先归档后转发）"
     )
+
+    @field_validator("recall_monitor_groups", mode="before")
+    @classmethod
+    def _coerce_monitor_groups(cls, value: Any):
+        """把 RECALL_MONITOR_GROUPS 规整为 list[int]。"""
+
+        return _coerce_int_list(value)
 
     @field_validator("recall_target_user_id", mode="before")
     @classmethod
@@ -35,46 +98,7 @@ class Config(BaseModel):
         - 逗号分隔：RECALL_TARGET_USER_ID=123,456
         """
 
-        if value is None:
-            return []
-
-        if isinstance(value, int):
-            return [value] if value else []
-
-        if isinstance(value, (tuple, set)):
-            value = list(value)
-
-        if isinstance(value, list):
-            return value
-
-        if isinstance(value, str):
-            s = value.strip()
-            if not s:
-                return []
-            # 优先：JSON 数组
-            if s.startswith("[") and s.endswith("]"):
-                try:
-                    parsed = json.loads(s)
-                except Exception:
-                    parsed = None
-                if isinstance(parsed, list):
-                    return parsed
-                if isinstance(parsed, int):
-                    return [parsed] if parsed else []
-            # 其次：逗号分隔
-            parts = [p.strip() for p in s.split(",")]
-            ids: list[int] = []
-            for p in parts:
-                if not p:
-                    continue
-                try:
-                    n = int(p)
-                except Exception:
-                    continue
-                if n and n not in ids:
-                    ids.append(n)
-            return ids
-        return value
+        return _coerce_int_list(value)
 
 
 driver = get_driver()
