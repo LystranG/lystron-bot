@@ -9,7 +9,9 @@ RECALL_TARGET_USER_ID=[123456789, 987654321]  # 接收撤回消息的 QQ 号列�
 RECALL_ARCHIVE_GROUP_ID=123456789  # 归档群号（仅转发消息需要；用于先归档再转发）
 """
 from nonebot.plugin import PluginMetadata
+from nonebot import get_plugin_config
 
+from .config import Config
 
 __plugin_meta__ = PluginMetadata(
     name="防撤回插件",
@@ -17,6 +19,8 @@ __plugin_meta__ = PluginMetadata(
     usage="在 .env 中配置 RECALL_MONITOR_GROUPS、RECALL_TARGET_USER_ID 等",
     extra={"author": "Lystran"},
 )
+
+import config
 
 # 导入 handlers 模块以注册事件监听器（on_message / on_notice）
 from . import handlers as _handlers  # noqa: F401
