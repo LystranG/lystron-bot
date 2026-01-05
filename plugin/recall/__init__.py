@@ -19,5 +19,5 @@ __plugin_meta__ = PluginMetadata(
 )
 
 # 导入 commands 模块以注册 Alconna 命令
-from . import commands as _commands  # noqa: F401
+from . import commands as _commands
 

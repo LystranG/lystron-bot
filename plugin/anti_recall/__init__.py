@@ -23,7 +23,7 @@ __plugin_meta__ = PluginMetadata(
 from . import config as _config
 
 # 导入 handlers 模块以注册事件监听器（on_message / on_notice）
-from . import handlers as _handlers  # noqa: F401
+from . import handlers as _handlers
 
 # 导入 commands 模块以注册 Alconna 命令
-from . import commands as _commands  # noqa: F401
+from . import commands as _commands

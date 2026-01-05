@@ -1,21 +1,23 @@
 
 from nonebot import logger, require, on_message
 from nonebot.adapters import Bot as BaseBot, Event
+from nonebot.permission import SUPERUSER
 from nonebot.plugin.on import on_command
 
 from nb_shared.validate import is_superuser
 
 require("nonebot_plugin_alconna")
 
-from nonebot_plugin_alconna import on_alconna, AlcResult  # noqa: E402
+from nonebot_plugin_alconna import on_alconna, AlcResult
 from nonebot_plugin_alconna import UniMsg, Image, Audio
+from nonebot.adapters.onebot.v11 import Bot as V11Bot
 from . import test_cmd
 
-test = on_message()
-
-@test.handle()
-async def _test(msg: UniMsg):
-    pass
+# test = on_message(permission=SUPERUSER)
+#
+# @test.handle()
+# async def _test(bot: V11Bot, msg: UniMsg):
+#     pass
 
 @test_cmd.assign("alconna")
 async def test_alconna(msg: UniMsg, bot: BaseBot, event: Event, result: AlcResult):
