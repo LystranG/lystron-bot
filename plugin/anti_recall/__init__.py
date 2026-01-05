@@ -4,9 +4,9 @@
 
 配置说明:
 在 .env 文件中添加:
-RECALL_MONITOR_GROUPS=[123456789, 987654321]  # 监听的群号列表
-RECALL_TARGET_USER_ID=[123456789, 987654321]  # 接收撤回消息的 QQ 号列表
-RECALL_ARCHIVE_GROUP_ID=123456789  # 归档群号（仅转发消息需要；用于先归档再转发）
+ANTI_RECALL__MONITOR_GROUPS=[...]
+ANTI_RECALL__TARGET_USER_ID=[...]
+ANTI_RECALL__ARCHIVE_GROUP_ID=...
 """
 from nonebot.plugin import PluginMetadata
 from nonebot import get_plugin_config
