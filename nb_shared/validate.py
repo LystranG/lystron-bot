@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from nonebot import get_driver
 from nonebot.adapters import Event
+from nonebot.adapters import Bot as BaseBot
+from nonebot.adapters.onebot import V11Bot
 
 
 def is_superuser(event: Event) -> bool:
@@ -16,3 +18,6 @@ def is_superuser(event: Event) -> bool:
     superusers = getattr(get_driver().config, "superusers", []) or []
     return str(user_id) in {str(x) for x in superusers}
 
+
+def is_onebot_v11(bot: BaseBot) -> bool:
+    return isinstance(bot, V11Bot)
