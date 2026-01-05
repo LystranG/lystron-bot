@@ -1,11 +1,23 @@
 """开发调试插件（dev-debug）。
 
-约定：
-- 每个子命令独立一个文件，避免 __init__ 过于臃肿
-- 尽量少打扰正常群聊：无权限/不支持/参数错误直接静默
+目标：
+- 在本插件的 `__init__.py` 里定义“主命令入口”（Alconna 命令结构）
+- 每个子命令独立一个文件实现（`plugin/dev_debug/commands/<sub>.py`）
+
+设计约定：
+- 尽量少打扰正常聊天：无权限/不支持/参数错误直接静默
+- 仅 OneBot V11 生效
 """
 
+from nonebot import require
 from nonebot.plugin import PluginMetadata
+
+from nb_shared.alconna_ns import build_default_namespace
+
+require("nonebot_plugin_alconna")
+
+from arclet.alconna import Alconna, Subcommand  # noqa: E402
+from nonebot_plugin_alconna import on_alconna  # noqa: E402
 
 
 __plugin_meta__ = PluginMetadata(
@@ -14,6 +26,5 @@ __plugin_meta__ = PluginMetadata(
     usage="test send：在控制台输出机器人最近一次发送消息的记录（仅 OneBot V11，superuser 可用）",
 )
 
-# 导入子模块以完成注册（API hook / matcher）
-from . import record as _record  # noqa: F401
-from .commands import test_send as _test_send  # noqa: F401
+from . import record as _record  # noqa: E402,F401
+from . import commands

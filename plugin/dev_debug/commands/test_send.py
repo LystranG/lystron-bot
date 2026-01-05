@@ -5,19 +5,15 @@ from __future__ import annotations
 from typing import Any
 import json
 
-from nonebot import logger, require
+from nonebot import logger
 from nonebot.adapters import Bot as BaseBot, Event
 from nonebot.adapters.onebot.v11 import Bot as V11Bot
 
-from nb_shared.auth import is_superuser
-from nb_shared.alconna_ns import build_default_namespace
+from nb_shared.validate import is_superuser
 from ..record import get_last_sent
 
-
-require("nonebot_plugin_alconna")
-
-from arclet.alconna import Alconna, Subcommand  # noqa: E402
-from nonebot_plugin_alconna import on_alconna, AlcResult  # noqa: E402
+from nonebot_plugin_alconna import AlcResult  # noqa: E402
+from . import test_cmd
 
 
 def _safe_dump(value: Any) -> str:
@@ -27,21 +23,11 @@ def _safe_dump(value: Any) -> str:
         return str(value)
 
 
-test = on_alconna(
-    Alconna(
-        "test",
-        Subcommand("send"),
-        namespace=build_default_namespace(name="global"),
-    ),
-    priority=1,
-    block=True,
-    auto_send_output=False,
-)
+@test_cmd.assign("send")
+async def handle_test_send(bot: BaseBot, event: Event, result: AlcResult):
+    """输出最近一次发送消息记录（仅日志输出，不回复）。"""
 
-
-@test.handle()
-async def _(bot: BaseBot, event: Event, result: AlcResult):
-    # 命令解析失败/缺参数：静默
+    # 命令解析失败：静默
     if not result.matched:
         return
 
@@ -67,4 +53,3 @@ async def _(bot: BaseBot, event: Event, result: AlcResult):
         _safe_dump(last.message),
         last.exception,
     )
-
