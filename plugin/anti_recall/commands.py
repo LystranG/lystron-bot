@@ -24,7 +24,7 @@ from nonebot_plugin_alconna import (  # noqa: E402
     Match,
 )
 
-from nb_shared.auth import is_superuser  # noqa: E402
+from nb_shared.validate import is_superuser  # noqa: E402
 from nb_shared.alconna_ns import build_default_namespace  # noqa: E402
 from .state import is_enabled, set_enabled  # noqa: E402
 

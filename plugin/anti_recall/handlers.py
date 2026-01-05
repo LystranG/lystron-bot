@@ -23,7 +23,8 @@ from .segments import (
     extract_forward_ids,
     segments_to_cq,
 )
-from .utils import is_onebot_v11, bot_user_id
+from .utils import bot_user_id
+from nb_shared.validate import is_onebot_v11
 from .state import is_enabled
 
 

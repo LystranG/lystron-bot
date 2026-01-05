@@ -20,7 +20,7 @@ __plugin_meta__ = PluginMetadata(
     extra={"author": "Lystran"},
 )
 
-import config
+from . import config as _config
 
 # 导入 handlers 模块以注册事件监听器（on_message / on_notice）
 from . import handlers as _handlers  # noqa: F401
