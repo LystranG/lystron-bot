@@ -137,14 +137,14 @@ async def _process_session_turn(
         await bot.send(event=event, message=f"LLM 执行失败：{e}")
         return
 
-    if not decision.is_clarify:
-        await bot.send(event=event, message=decision.question)
-        sess.add(await extract_turn(bot, "assistant", UniMessage.text(decision.question)))
+    if not decision.trigger_n8n:
+        await bot.send(event=event, message=decision.response)
+        sess.add(await extract_turn(bot, "assistant", UniMessage.text(decision.response)))
         return
 
     # 需求明确：交给 n8n。n8n 侧再决定是否/如何让机器人回复。
     try:
-        await webhook_request(N8NRequest(requirement=decision.requirement, session_id=sess.n8n_session_id))
+        await webhook_request(N8NRequest(requirement=decision.payload, session_id=sess.n8n_session_id))
     except Exception as e:
         logger.exception("调用 n8n 失败")
         await bot.send(event=event, message=f"调用 n8n 失败：{e}")

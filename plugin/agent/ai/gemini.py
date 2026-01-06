@@ -119,16 +119,16 @@ async def request(messages: list[ChatMessage]) -> AiResponse:
             obj = json.loads(raw)
         except Exception:
             # 把模型输出塞到 question，确保上层始终拿到 JSON
-            return AiResponse(question=raw)
+            return AiResponse(response=raw)
 
         if not isinstance(obj, dict):
-            return AiResponse(question=raw)
+            return AiResponse(response=raw)
         # 规范化字段，避免缺 key
 
         return AiResponse(
-            is_clarify=bool(obj.get("is_clarify", False)),
-            requirement=str(obj.get("requirement", "") or ""),
-            question=str(obj.get("question", "") or "")
+            trigger_n8n=bool(obj.get("is_clarify", False)),
+            payload=str(obj.get("requirement", "") or ""),
+            response=str(obj.get("question", "") or "")
         )
 
     # 上下文最多 15 条（含最后一条用户输入）
