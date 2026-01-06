@@ -126,9 +126,9 @@ async def request(messages: list[ChatMessage]) -> AiResponse:
         # 规范化字段，避免缺 key
 
         return AiResponse(
-            trigger_n8n=bool(obj.get("is_clarify", False)),
-            payload=str(obj.get("requirement", "") or ""),
-            response=str(obj.get("question", "") or "")
+            trigger_n8n=bool(obj.get("trigger_n8n", False)),
+            payload=str(obj.get("payload", "") or ""),
+            response=str(obj.get("response", "") or "")
         )
 
     # 上下文最多 15 条（含最后一条用户输入）
@@ -136,11 +136,11 @@ async def request(messages: list[ChatMessage]) -> AiResponse:
 
     response_schema: dict[str, Any] = {
         "type": "OBJECT",
-        "required": ["is_clarify", "requirement", "question"],
+        "required": ["trigger_n8n", "payload", "response"],
         "properties": {
-            "is_clarify": {"type": "BOOLEAN"},
-            "requirement": {"type": "STRING"},
-            "question": {"type": "STRING"},
+            "trigger_n8n": {"type": "BOOLEAN"},
+            "payload": {"type": "STRING"},
+            "response": {"type": "STRING"},
         },
     }
 
